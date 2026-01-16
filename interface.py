@@ -3,233 +3,150 @@ from tkinter import ttk, colorchooser
 import serial
 import serial.tools.list_ports
 import time
-import sys
 
 BAUD_RATE = 9600 
-MODES = {
-    'A': "Azul Total",
-    'V': "Vermelho Piscante",
-    'M': "Amarelo Total"
-}
 
 class LEDControllerApp:
     def __init__(self, master):
         self.master = master
-        master.title("Controle LED Pico")
+        master.title("Painel LED - Controle de Limite e Custom")
         self.serial_connection = None
         self.selected_port = tk.StringVar()
         
         self.setup_ui()
         self.find_ports()
-        
-        # Inicia o loop de keep-alive para evitar o timeout do Pico
         self.keep_alive_loop()
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    def keep_alive_loop(self):
-        """Envia um sinal 'vazio' a cada 2 segundos para o Pico não desligar."""
+    def setup_ui(self):
+        main_frame = ttk.Frame(self.master, padding="15")
+        main_frame.pack(fill='both', expand=True)
+        
+        # --- CONEXÃO ---
+        conn_frame = ttk.LabelFrame(main_frame, text=" Conexão ", padding="5")
+        conn_frame.pack(fill='x', pady=5)
+        self.port_combobox = ttk.Combobox(conn_frame, textvariable=self.selected_port, state="readonly")
+        self.port_combobox.pack(side=tk.LEFT, padx=5, fill='x', expand=True)
+        ttk.Button(conn_frame, text="Reload", command=self.find_ports).pack(side=tk.LEFT)
+        self.connect_button = ttk.Button(conn_frame, text="Conectar", command=self.connect)
+        self.connect_button.pack(side=tk.RIGHT, padx=5)
+
+        # --- CORES PRÉ-DEFINIDAS ---
+        color_frame = ttk.LabelFrame(main_frame, text=" Cores Rápidas ", padding="10")
+        color_frame.pack(fill='x', pady=5)
+        
+        btn_row = ttk.Frame(color_frame)
+        btn_row.pack(fill='x')
+        ttk.Button(btn_row, text="Azul", command=lambda: self.send_command('A')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(btn_row, text="Amarelo", command=lambda: self.send_command('M')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(btn_row, text="Piscante (V)", command=lambda: self.send_command('V')).pack(side=tk.LEFT, expand=True, padx=2)
+
+        # --- COR CUSTOMIZADA (RGB) ---
+        custom_frame = ttk.LabelFrame(main_frame, text=" Cor Personalizada ", padding="10")
+        custom_frame.pack(fill='x', pady=5)
+
+        self.red_var, self.green_var, self.blue_var = tk.IntVar(value=0), tk.IntVar(value=0), tk.IntVar(value=255)
+
+        for label, var, color in [("R", self.red_var, "red"), ("G", self.green_var, "green"), ("B", self.blue_var, "blue")]:
+            row = ttk.Frame(custom_frame)
+            row.pack(fill='x')
+            ttk.Label(row, text=label, foreground=color, width=2, font=('bold')).pack(side=tk.LEFT)
+            ttk.Scale(row, from_=0, to=255, orient=tk.HORIZONTAL, variable=var, command=self.send_rgb_from_sliders).pack(side=tk.LEFT, fill='x', expand=True, padx=5)
+
+        ttk.Button(custom_frame, text="Abrir Seletor de Cores", command=self.pick_color_dialog).pack(fill='x', pady=5)
+
+        # --- COMPORTAMENTO ---
+        mode_frame = ttk.LabelFrame(main_frame, text=" ⚡ Modo de Exibição ", padding="10")
+        mode_frame.pack(fill='x', pady=5)
+        
+        ttk.Button(mode_frame, text="FIXO", command=lambda: self.send_command('FIXO')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(mode_frame, text="CASCATA", command=lambda: self.send_command('C')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(mode_frame, text="PULSA", command=lambda: self.send_command('PULSA')).pack(side=tk.LEFT, expand=True, padx=2)
+        
+        wave_sub = ttk.Frame(mode_frame)
+        wave_sub.pack(side=tk.LEFT, expand=True, padx=2)
+        self.wave_width_var = tk.StringVar(value="4")
+        ttk.Entry(wave_sub, textvariable=self.wave_width_var, width=3).pack(side=tk.LEFT)
+        ttk.Button(wave_sub, text="ONDA", command=self.send_wave_mode).pack(side=tk.LEFT)
+
+        # --- LIMITE DE LEDS ---
+        limit_frame = ttk.LabelFrame(main_frame, text=" ⚙️ Configuração Física ", padding="10")
+        limit_frame.pack(fill='x', pady=5)
+        ttk.Label(limit_frame, text="Ativar apenas:").pack(side=tk.LEFT)
+        self.led_limit_var = tk.StringVar(value="10")
+        ttk.Entry(limit_frame, textvariable=self.led_limit_var, width=5).pack(side=tk.LEFT, padx=5)
+        ttk.Button(limit_frame, text="Aplicar Limite", command=self.update_led_limit).pack(side=tk.LEFT)
+
+        # --- DESLIGAR ---
+        ttk.Button(main_frame, text=" DESLIGAR TUDO", command=lambda: self.send_command('OFF')).pack(fill='x', pady=10)
+        
+        self.status_label = ttk.Label(main_frame, text="Desconectado", foreground="gray")
+        self.status_label.pack()
+
+    def send_command(self, command):
         if self.serial_connection and self.serial_connection.is_open:
-            try:
-                self.serial_connection.write(b".\n")
+            try: 
+                self.serial_connection.write((command + '\n').encode('utf-8'))
+            except: 
+                self.disconnect()
+
+    def send_rgb_from_sliders(self, event=None):
+        cmd = f"{self.red_var.get()},{self.green_var.get()},{self.blue_var.get()}"
+        self.send_command(cmd)
+
+    def pick_color_dialog(self):
+        # A correção está aqui: desempacotamos a tupla (rgb, hex)
+        # askcolor retorna algo como: ((255.0, 0.0, 0.0), '#ff0000')
+        rgb_tuple, hex_code = colorchooser.askcolor(title="Selecione a Cor")
+        
+        if rgb_tuple:
+            self.red_var.set(int(rgb_tuple[0]))
+            self.green_var.set(int(rgb_tuple[1]))
+            self.blue_var.set(int(rgb_tuple[2]))
+            self.send_rgb_from_sliders()
+
+    def update_led_limit(self):
+        val = self.led_limit_var.get()
+        if val.isdigit(): self.send_command(f"N{val}")
+
+    def send_wave_mode(self):
+        w = self.wave_width_var.get()
+        if w.isdigit(): self.send_command(f"W{w}")
+
+    def keep_alive_loop(self):
+        if self.serial_connection and self.serial_connection.is_open:
+            try: self.serial_connection.write(b".\n")
             except: pass
         self.master.after(2000, self.keep_alive_loop)
 
-    def update_led_count(self):
-        count = self.led_count_var.get()
-        if count.isdigit():
-
-            self.send_command(f"N{count}")     
-
     def find_ports(self):
-
         ports = serial.tools.list_ports.comports()
         self.port_list = [port.device for port in ports]
-        
         self.port_combobox['values'] = self.port_list
-        if self.port_list:
-            self.selected_port.set(self.port_list[0])
+        if self.port_list: self.selected_port.set(self.port_list[0])
 
     def connect(self):
         port = self.selected_port.get()
         if not port: return
         try:
-            if self.serial_connection and self.serial_connection.is_open:
-                self.serial_connection.close()
-            
-            self.serial_connection = serial.Serial(port, BAUD_RATE, timeout=0.1) 
-            time.sleep(2) # Aguarda inicialização do Pico
-            
-            self.status_label.config(text=f"CONECTADO", foreground="green")
-            self.toggle_controls(True)
-            self.connect_button.config(text="Desconectar", command=self.disconnect)
-            
-            # LIGA O LED IMEDIATAMENTE COM O VALOR ATUAL DOS SLIDERS
-            self.send_rgb_from_sliders()
-
+            self.serial_connection = serial.Serial(port, BAUD_RATE, timeout=0.1)
+            self.serial_connection.dtr = True  # Ativa o sinal de pronto
+            self.serial_connection.rts = True  # Ativa o sinal de fluxo
+            time.sleep(2)
+            self.status_label.config(text="Conectado", foreground="green")
+            self.send_rgb_from_sliders() 
         except Exception as e:
-            self.status_label.config(text=f"ERRO: {e}", foreground="red")
-
+            self.status_label.config(text=f"Erro: {e}", foreground="red")
 
     def disconnect(self):
-
-        if self.serial_connection and self.serial_connection.is_open:
-            try:
-
-                self.serial_connection.write(b"OFF\n")
-                self.serial_connection.flush()
-                time.sleep(0.1) 
-            except:
-                pass
-            
-            self.serial_connection.close()
-            self.status_label.config(text="DESCONECTADO", foreground="blue")
-            self.toggle_controls(False)
-            self.connect_button.config(text="Conectar", command=self.connect)
-
-    def on_closing(self):
-        
         if self.serial_connection and self.serial_connection.is_open:
             try:
                 self.serial_connection.write(b"OFF\n")
-                self.serial_connection.flush()
-                time.sleep(0.1)
-            except:
-                pass
-        self.disconnect()
-        self.master.destroy()
-
-    def toggle_controls(self, state):
-        
-        
-        new_state = tk.NORMAL if state else tk.DISABLED
-        
-
-        for child in self.mode_frame.winfo_children():
-            widget_type = child.winfo_class()
-            if widget_type in ('TButton', 'Button'):
-                 child.config(state=new_state)
-
-
-        self.red_slider.config(state=new_state)
-        self.green_slider.config(state=new_state)
-        self.blue_slider.config(state=new_state)
-        self.send_rgb_button.config(state=new_state)
-        self.color_picker_button.config(state=new_state)
-
-
-    def send_command(self, command):
-
-        if self.serial_connection and self.serial_connection.is_open:
-           
-            try:
-                self.serial_connection.write((command + '\n').encode('utf-8'))
-                print(f"Comando enviado: {command}")
-            except Exception as e:
-                self.status_label.config(text=f"Erro de envio: {e}", foreground="red")
-                self.disconnect()
-        else:
-            self.status_label.config(text="Não conectado.", foreground="red")
-
-    def send_rgb_from_sliders(self, event=None):
-
-        r = self.red_var.get()
-        g = self.green_var.get()
-        b = self.blue_var.get()
-        command = f"{r},{g},{b}"
-        self.send_command(command)
-        
-    def pick_color_dialog(self):
-        color_code, rgb_tuple = colorchooser.askcolor(title="Selecione a Cor")
-        
-        if rgb_tuple:
-            r, g, b = rgb_tuple
-            
-            self.red_var.set(int(r))
-            self.green_var.set(int(g))
-            self.blue_var.set(int(b))
-            
-            self.send_rgb_from_sliders()
-
-
-    def setup_ui(self):
-        main_frame = ttk.Frame(self.master, padding="10")
-        main_frame.pack(fill='both', expand=True)
-        
-        connection_frame = ttk.LabelFrame(main_frame, text="Conexão", padding="10")
-        connection_frame.pack(fill='x', pady=10)
-        
-        ttk.Label(connection_frame, text="Porta Serial:").pack(side=tk.LEFT, padx=5)
-        
-        self.port_combobox = ttk.Combobox(connection_frame, textvariable=self.selected_port, state="readonly", width=15)
-        self.port_combobox.pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(connection_frame, text="Recarregar", command=self.find_ports).pack(side=tk.LEFT, padx=5)
-        
-        self.connect_button = ttk.Button(connection_frame, text="Conectar", command=self.connect)
-        self.connect_button.pack(side=tk.RIGHT, padx=5)
-
-        self.status_label = ttk.Label(main_frame, text="Desconectado", foreground="blue")
-        self.status_label.pack(pady=5)
-        
-        # --- 2. CONTROLES DE MODO ---
-        self.mode_frame = ttk.LabelFrame(main_frame, text="Modos Pré-definidos", padding="10")
-        self.mode_frame.pack(fill='x', pady=10)
-        
-        for char_code, name in MODES.items():
-            ttk.Button(self.mode_frame, text=name, command=lambda code=char_code: self.send_command(code)).pack(side=tk.LEFT, expand=True, padx=5, pady=5)
-        
-        # --- 3. CONTROLES CUSTOMIZADOS (RGB) ---
-        self.control_frame = ttk.LabelFrame(main_frame, text="Controle Customizado (RGB)", padding="10")
-        self.control_frame.pack(fill='x', pady=10)
-
-        # Variáveis para os sliders
-        self.red_var = tk.IntVar(value=0)
-        self.green_var = tk.IntVar(value=0)
-        self.blue_var = tk.IntVar(value=0)
-        
-        # Sliders e Rótulos (Red)
-        ttk.Label(self.control_frame, text="Vermelho (R):").pack(pady=2)
-        self.red_slider = ttk.Scale(self.control_frame, from_=0, to=255, orient=tk.HORIZONTAL, variable=self.red_var, command=self.send_rgb_from_sliders)
-        self.red_slider.pack(fill='x', padx=10)
-        
-        # Sliders e Rótulos (Green)
-        ttk.Label(self.control_frame, text="Verde (G):").pack(pady=2)
-        self.green_slider = ttk.Scale(self.control_frame, from_=0, to=255, orient=tk.HORIZONTAL, variable=self.green_var, command=self.send_rgb_from_sliders)
-        self.green_slider.pack(fill='x', padx=10)
-        
-        # Sliders e Rótulos (Blue)
-        ttk.Label(self.control_frame, text="Azul (B):").pack(pady=2)
-        self.blue_slider = ttk.Scale(self.control_frame, from_=0, to=255, orient=tk.HORIZONTAL, variable=self.blue_var, command=self.send_rgb_from_sliders)
-        self.blue_slider.pack(fill='x', padx=10)
-
-        # Botão para enviar RGB e Color Picker
-        buttons_rgb_frame = ttk.Frame(self.control_frame)
-        buttons_rgb_frame.pack(fill='x', pady=10)
-        
-        self.send_rgb_button = ttk.Button(buttons_rgb_frame, text="Aplicar RGB (Sliders)", command=self.send_rgb_from_sliders)
-        self.send_rgb_button.pack(side=tk.LEFT, expand=True, padx=5)
-
-        self.color_picker_button = ttk.Button(buttons_rgb_frame, text="Seletor de Cores...", command=self.pick_color_dialog)
-        self.color_picker_button.pack(side=tk.RIGHT, expand=True, padx=5)
-
-        # --- NOVO: CONFIGURAÇÃO DE QUANTIDADE DE LEDS ---
-        config_frame = ttk.LabelFrame(main_frame, text="Configuração da Fita", padding="10")
-        config_frame.pack(fill='x', pady=5)
-        
-        ttk.Label(config_frame, text="Qtd. LEDs:").pack(side=tk.LEFT, padx=5)
-        self.led_count_var = tk.StringVar(value="12")
-        self.led_count_entry = ttk.Entry(config_frame, textvariable=self.led_count_var, width=10)
-        self.led_count_entry.pack(side=tk.LEFT, padx=5)
-        
-        self.update_led_button = ttk.Button(config_frame, text="Atualizar Fita", 
-                                            command=self.update_led_count)
-        self.update_led_button.pack(side=tk.LEFT, padx=5)
-        
-        # Inicia os controles desabilitados
-        self.toggle_controls(False)
+                self.serial_connection.close()
+            except: pass
+        self.status_label.config(text="Desconectado", foreground="gray")
 
     def on_closing(self):
-        """Garante o fechamento da conexão serial ao fechar a janela."""
         self.disconnect()
         self.master.destroy()
 

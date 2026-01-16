@@ -4,7 +4,7 @@ import serial
 import time
 
 app = Flask(__name__)
-ser = serial.Serial('/dev/ttyACM1', 9600, timeout=0.1)
+ser = serial.Serial('/dev/ttyACM2', 9600, timeout=0.1)
 
 def keep_alive():
     """Envia um ponto para o Pico a cada 3 segundos para ele não desligar"""
