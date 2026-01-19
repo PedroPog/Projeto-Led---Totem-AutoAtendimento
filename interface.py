@@ -37,9 +37,9 @@ class LEDControllerApp:
         
         btn_row = ttk.Frame(color_frame)
         btn_row.pack(fill='x')
-        ttk.Button(btn_row, text="Azul", command=lambda: self.send_command('A')).pack(side=tk.LEFT, expand=True, padx=2)
-        ttk.Button(btn_row, text="Amarelo", command=lambda: self.send_command('M')).pack(side=tk.LEFT, expand=True, padx=2)
-        ttk.Button(btn_row, text="Piscante (V)", command=lambda: self.send_command('V')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(btn_row, text="Azul", command=lambda: self.send_command('AZUL')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(btn_row, text="Amarelo", command=lambda: self.send_command('AMARELO')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(btn_row, text="Piscante (V)", command=lambda: self.send_command('VERMELHO')).pack(side=tk.LEFT, expand=True, padx=2)
 
         # --- COR CUSTOMIZADA (RGB) ---
         custom_frame = ttk.LabelFrame(main_frame, text=" Cor Personalizada ", padding="10")
@@ -59,9 +59,9 @@ class LEDControllerApp:
         mode_frame = ttk.LabelFrame(main_frame, text=" ⚡ Modo de Exibição ", padding="10")
         mode_frame.pack(fill='x', pady=5)
         
-        ttk.Button(mode_frame, text="FIXO", command=lambda: self.send_command('FIXO')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(mode_frame, text="FIXO", command=lambda: self.send_command('F')).pack(side=tk.LEFT, expand=True, padx=2)
         ttk.Button(mode_frame, text="CASCATA", command=lambda: self.send_command('C')).pack(side=tk.LEFT, expand=True, padx=2)
-        ttk.Button(mode_frame, text="PULSA", command=lambda: self.send_command('PULSA')).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(mode_frame, text="PULSA", command=lambda: self.send_command('P')).pack(side=tk.LEFT, expand=True, padx=2)
         
         wave_sub = ttk.Frame(mode_frame)
         wave_sub.pack(side=tk.LEFT, expand=True, padx=2)

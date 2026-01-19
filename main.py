@@ -5,17 +5,17 @@ import sys
 import select
 
 # --- CONFIGURAÇÃO ---
-LED_PIN = 5
+LED_PIN = 0
 MAX_LEDS = 300
 np = neopixel.NeoPixel(machine.Pin(LED_PIN), MAX_LEDS)
-limit_leds = 12 
+limit_leds = 30 
 
 # Configuração do LED Interno
 # 'LED' funciona para Pico comum (pino 25) e Pico W
 led_interno = machine.Pin('LED', machine.Pin.OUT)
 
 # Estados de Controle
-current_behavior = 'FIXO' 
+current_behavior = 'F' 
 current_color_mode = 'AZUL'
 
 last_update_time = time.ticks_ms()
@@ -50,29 +50,29 @@ while True:
                 limit_leds = int(line[1:])
                 clear()
             except: pass
-        elif line == 'A':
+        elif line == 'AZUL':
             current_color_mode = 'AZUL'; current_rgb = (0, 0, 255)
-            if current_behavior == 'CASCATA': anim_step = 0; clear()
-        elif line == 'V':
-            current_color_mode = 'PISCANTE'; anim_step = 0
-        elif line == 'M':
+            if current_behavior == 'C': anim_step = 0; clear()
+        elif line == 'VERMELHO':
+            current_color_mode = 'PP'; anim_step = 0
+        elif line == 'AMARELO':
             current_color_mode = 'AMARELO'; current_rgb = (255, 251, 0)
-            if current_behavior == 'CASCATA': anim_step = 0; clear()
+            if current_behavior == 'C': anim_step = 0; clear()
         elif line == 'OFF':
             current_color_mode = 'OFF'; clear()
         elif ',' in line:
             try:
                 r, g, b = map(int, line.split(','))
                 current_rgb = (r, g, b); current_color_mode = 'RGB'
-                if current_behavior == 'CASCATA': anim_step = 0; clear()
+                if current_behavior == 'C': anim_step = 0; clear()
             except: pass
 
         # Comportamentos
-        elif line == 'FIXO': current_behavior = 'FIXO'
-        elif line == 'C': current_behavior = 'CASCATA'; anim_step = 0; clear()
-        elif line == 'PULSA': current_behavior = 'PULSA'; anim_step = 0; clear()
+        elif line == 'F': current_behavior = 'F'
+        elif line == 'C': current_behavior = 'C'; anim_step = 0; clear()
+        elif line == 'P': current_behavior = 'P'; anim_step = 0; clear()
         elif line.startswith('W'):
-            current_behavior = 'ONDA'; anim_step = 0
+            current_behavior = 'W'; anim_step = 0
             try: wave_width = int(line[1:])
             except: wave_width = 4
 
@@ -87,7 +87,7 @@ while True:
         # Se não estiver OFF, mantém o LED interno ligado para indicar atividade
         led_interno.on()
 
-        if current_color_mode == 'PISCANTE':
+        if current_color_mode == 'PP':
             if time.ticks_diff(now, last_update_time) > 400:
                 if is_red_on:
                     set_all_limited((0,0,0)); is_red_on = False
@@ -95,10 +95,10 @@ while True:
                     set_all_limited((255, 0, 0)); is_red_on = True
                 last_update_time = now
 
-        elif current_behavior == 'FIXO':
+        elif current_behavior == 'F':
             set_all_limited(current_rgb)
 
-        elif current_behavior == 'CASCATA':
+        elif current_behavior == 'C':
             if time.ticks_diff(now, last_update_time) > 150:
                 if anim_step < limit_leds:
                     np[anim_step] = current_rgb
@@ -106,7 +106,7 @@ while True:
                     anim_step += 1
                 last_update_time = now
 
-        elif current_behavior == 'PULSA':
+        elif current_behavior == 'P':
             if time.ticks_diff(now, last_update_time) > 30:
                 brightness = anim_step / 100.0
                 r = int(current_rgb[0] * brightness)
@@ -118,7 +118,7 @@ while True:
                     pulse_direction *= -1
                 last_update_time = now
 
-        elif current_behavior == 'ONDA':
+        elif current_behavior == 'W':
             if time.ticks_diff(now, last_update_time) > 150:
                 for i in range(MAX_LEDS):
                     if i < limit_leds:
@@ -133,3 +133,4 @@ while True:
                 last_update_time = now
 
     time.sleep(0.001)
+

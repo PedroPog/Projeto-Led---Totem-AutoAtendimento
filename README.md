@@ -5,7 +5,7 @@
  <li>Fita led WS2512B PCB white</li>
  <li>Fonte Externa 5V 10A (Para alimetação da fita LED)</li>
  <li>Cabo usb V8 (Comunicação Pico para computador)</li>
- <li>Resstor 470 Ω (Somente para proteção ante surto)</li>
+ <li>Resistor 470 Ω (Somente para proteção ante surto)</li>
 
 
 ##### Obs. calculo para fonte de led 150 LEDs x 60mA = 9.000mA  (9 Ampéres)
